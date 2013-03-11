@@ -1,0 +1,42 @@
+#################################################################
+# uucp_copy from_file_name to_file_name remote_system_name
+#################################################################
+
+USER=AvayaStatistics
+BASE=`basename $1`
+DATE=`date +%Y%m%d`
+
+#
+# converting binary to text
+#
+
+/cms/dc/chr/echi-decode.pl $1 /cms/dc/chr/processed/$BASE.$DATE.txt 2>> /cms/dc/chr/echi-decode.log
+
+if [ $? -ne 0 ]
+then
+  echo "/cms/dc/chr/echi-decode.pl $1 /cms/dc/chr/processed/$BASE.$DATE.txt" > /cms/dc/chr/$BASE.err
+  exit 1
+fi
+
+#
+# transferring text file via scp
+#
+cp /cms/dc/chr/processed/$BASE.$DATE.txt /cms/dc/chr/queue/$BASE.txt
+
+echo `date` >> /cms/dc/chr/scp_log
+echo "Copying $BASE.$DATE.txt via scp as $BASE.txt" >> /cms/dc/chr/scp_log
+/usr/bin/scp -v -i /etc/ssh-key /cms/dc/chr/queue/$BASE.txt $USER@$3: 2>> /cms/dc/chr/scp_log
+
+if [ $? -ne 0 ]
+then
+  echo "/usr/bin/scp -v -i /etc/ssh-key /cms/dc/chr/queue/$BASE.txt $USER@$3:" > /cms/dc/chr/$BASE.err
+  exit 2
+fi
+
+#
+# cleaning up text file
+#
+rm /cms/dc/chr/queue/$BASE.txt
+
+exit 0
+
