@@ -6,17 +6,18 @@
 #
 # Version log:
 #
-# 1.7: Log is now written to STDERR instead of STDOUT, to accommodate
-#      for optional data output to STDOUT. Added command line options.
-#      Updated to CMS R17 data structures (not tested yet).
-#      Kudos to Alexey Safonov for R17 patch.
-# 1.6: Updated to accommodate for CMS 16.3 changes.
-# 1.5: Updated for CMS R16. Hopefully in full.
-# 1.4: Fixed incorrect field length definition for R11 and R3V8 ECHI formats
-# 1.3: Fixed bug with double timezone conversion
-# 1.2: Added an experimental fix for CMS DURATION/SEGSTART fields bug
-# 1.1: Completely rewrote parsing code, optimized it for speed and size
-# 1.0: Initial release
+# 1.71: Fixed a bug with R17 header version
+# 1.7:  Log is now written to STDERR instead of STDOUT, to accommodate
+#       for optional data output to STDOUT. Added command line options.
+#       Updated to CMS R17 data structures (not tested yet).
+#       Kudos to Alexey Safonov for R17 patch.
+# 1.6:  Updated to accommodate for CMS 16.3 changes.
+# 1.5:  Updated for CMS R16. Hopefully in full.
+# 1.4:  Fixed incorrect field length definition for R11 and R3V8 ECHI formats
+# 1.3:  Fixed bug with double timezone conversion
+# 1.2:  Added an experimental fix for CMS DURATION/SEGSTART fields bug
+# 1.1:  Completely rewrote parsing code, optimized it for speed and size
+# 1.0:  Initial release
 #
 
 #
@@ -311,7 +312,7 @@ __DATA__
     strstop => 78
   },
 
-  17 =>		# CMS R17 and above
+  170 =>		# CMS R17 and above
   {
     length => 629,
     header => 'CALLID,ACWTIME,ANSHOLDTIME,CONSULTTIME,DISPTIME,DURATION,SEGSTART,SEGSTART_UTC,SEGSTOP,SEGSTOP_UTC,TALKTIME,NETINTIME,ORIGHOLDTIME,QUEUETIME,RINGTIME,ORIG_ATTRIB_ID,ANS_ATTRIB_ID,OBS_ATTRIB_ID,DISPIVECTOR,DISPSPLIT,FIRSTIVECTOR,SPLIT1,SPLIT2,SPLIT3,TKGRP,EQ_LOCID,ORIG_LOCID,ANS_LOCID,OBS_LOCID,UUI_LEN,ASSIST,AUDIO,CONFERENCE,DA_QUEUED,HOLDABN,MALICIOUS,OBSERVINGCALL,TRANSFERRED,AGT_RELEASED,ACD,CALL_DISP,DISPPRIORITY,HELD,SEGMENT,ANSREASON,ORIGREASON,DISPSKLEVEL,EVENT1,EVENT2,EVENT3,EVENT4,EVENT5,EVENT6,EVENT7,EVENT8,EVENT9,UCID,DISPVDN,EQLOC,FIRSTVDN,ORIGLOGIN,ANSLOGIN,LASTOBSERVER,DIALED_NUM,CALLING_PTY,LASTDIGITS,LASTCWC,CALLING_II,CWC1,CWC2,CWC3,CWC4,CWC5,VDN2,VDN3,VDN4,VDN5,VDN6,VDN7,VDN8,VDN9,ASAI_UUI,INTERRUPTDEL,AGENTSURPLUS,AGENTSKILLLEVEL,PREFSKILLLEVEL,ICRRESENT,ICRPULLREASON',
