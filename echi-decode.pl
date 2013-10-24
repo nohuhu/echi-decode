@@ -6,6 +6,8 @@
 #
 # Version log:
 #
+# 1.72: Added an option to specify string delimiter character
+#       Fixed a bug with date format command line option handling
 # 1.71: Fixed a bug with R17 header version
 # 1.7:  Log is now written to STDERR instead of STDOUT, to accommodate
 #       for optional data output to STDOUT. Added command line options.
@@ -40,7 +42,7 @@ my $PRINT_HEADER = 1;
 
 #
 # Date format for SEGSTART and SEGSTOP fields, in strftime format.
-# To have date/time in UNIX format, comment this setting out.
+# To have date/time output in UNIX format, set this to an empty string.
 # For conventional U.S. format use %c, man strftime for more information.
 # For this field to be enclosed in double quotes put them in the format
 # string.
@@ -48,6 +50,19 @@ my $PRINT_HEADER = 1;
 #
 #my $DATE_FORMAT => '"%c"';
 my $DATE_FORMAT = '"%d.%m.%Y %H:%M:%S"';
+
+#
+# String field delimiter character, by default a double quote (").
+# In CSV file format, it is commonly expected to have string fields
+# enclosed in a delimiter characters, like "foo", as opposed to numeric
+# fields that usually are not enclosed, like 0.
+# Note that this setting *does not* affect date fields - see $DATE_FORMAT
+# above.
+# In some cases it may be desirable not to enclose string fields, too;
+# set this to an empty string '' to achieve that effect.
+# Use -s command line option to override.
+#
+my $STRING_DELIMITER = '"';
 
 ############################################################################
 #
@@ -84,7 +99,7 @@ $\ = "\n";
 {
     my %opt;
     
-    getopts 'vqpnhf:', \%opt;
+    getopts 'vqpnhf:s:', \%opt;
 
     # Be quiet if -q, verbose if -v, or fall back to config
     $VERBOSE = $opt{q} ? 0 : $opt{v} ? 1 : $VERBOSE;
@@ -93,7 +108,10 @@ $\ = "\n";
     $PRINT_HEADER = $opt{n} ? 0 : $opt{p} ? 1 : $PRINT_HEADER;
 
     # Command line trumps configured date format
-    $DATE_FORMAT = $opt{f} if $opt{f};
+    $DATE_FORMAT = $opt{f} if defined $opt{f};
+
+    # String delimiter can be overridden, too
+    $STRING_DELIMITER = $opt{s} if defined $opt{s};
 }
 
 if ($#ARGV < 1) {
@@ -106,6 +124,7 @@ Parameters:
 -p -- print CSV header line, listing all column names
 -n -- don't print header, takes precedence over variable or -p
 -f <format> -- set date format, enclose in '' if there are spaces
+-s <char> -- set string delimiter character, default is qouble quote (")
 
 Input and output file names can be dashes (-), in which case STDIN
 and STDOUT are used, respectively.
@@ -180,7 +199,7 @@ while( read $input, my $buf, $chunk_length ) {
     };
 
     for (my $i = $strstart; $i <= ($strstop || $#data); $i++) { 
-        $data[$i] = '"' . $data[$i] . '"'; 
+        $data[$i] = $STRING_DELIMITER . $data[$i] . $STRING_DELIMITER; 
     };
 
     dieit "Cannot write to file: $!"
