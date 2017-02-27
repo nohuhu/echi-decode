@@ -6,6 +6,7 @@
 #
 # Version log:
 #
+# 1.81: Added option to specify ASAI_UUI output format (ASCII or HEX)
 # 1.8:	Added CMS R18 Support. 
 #		Fixed a bug with bits unpacking format for CMS R16.x and R17
 #		Fixed a bug with CMS R16.x ASAI_UUI field length (changed from 96 to 97 bytes)  
@@ -68,6 +69,15 @@ my $DATE_FORMAT = '"%d.%m.%Y %H:%M:%S"';
 #
 my $STRING_DELIMITER = '"';
 
+#
+# UUI output format (ASCII or HEX)
+# Default is ASCII - 0
+# UUI can contain some characters which make it hard to parse 
+# (for example: ' - quote char, " - double quote char)
+# Use -x and -u command line options to override.
+#
+my $UUI_FORMAT = 0;
+
 ############################################################################
 #
 # PLEASE DON'T CHANGE ANYTHING BELOW THIS LINE!
@@ -103,7 +113,7 @@ $\ = "\n";
 {
     my %opt;
     
-    getopts 'vqpnhf:s:', \%opt;
+    getopts 'vqpnhxuf:s:', \%opt;
 
     # Be quiet if -q, verbose if -v, or fall back to config
     $VERBOSE = $opt{q} ? 0 : $opt{v} ? 1 : $VERBOSE;
@@ -116,6 +126,9 @@ $\ = "\n";
 
     # String delimiter can be overridden, too
     $STRING_DELIMITER = $opt{s} if defined $opt{s};
+    
+    # UUI Hex if -x, UUI ASCII if -u, of fallback to config
+    $UUI_FORMAT = $opt{u} ? 0 : $opt{x} ? 1 : $UUI_FORMAT;
 }
 
 if ($#ARGV < 1) {
@@ -127,6 +140,8 @@ Parameters:
 -q -- be quiet even despite \$VERBOSE variable or -v parameter set
 -p -- print CSV header line, listing all column names
 -n -- don't print header, takes precedence over variable or -p
+-x -- set UUI format as HEX
+-u -- set UUI format as ASCII
 -f <format> -- set date format, enclose in '' if there are spaces
 -s <char> -- set string delimiter character, default is qouble quote (")
 
@@ -173,6 +188,7 @@ my $strstop       = $echi_format->{strstop};
 my $strtailstart  = $echi_format->{strtailstart};
 my $strtailstop   = $echi_format->{strtailstop};
 my $segment       = $echi_format->{segment};
+my $asai_uui      = $echi_format->{asai_uui};
 
 print $output $header if $PRINT_HEADER;
 
@@ -204,7 +220,17 @@ while( read $input, my $buf, $chunk_length ) {
         $data[$index] = unpack 's', pack 'S', $data[$index];
     };
 
+	#
+	# UUI to HEX Convertion
+	#
+	if ($ver >= 12 && $UUI_FORMAT == 1) {
+		
+    		$data[$asai_uui] = unpack('H*', $data[$asai_uui]);
+	}
+
+
     for (my $i = $strstart; $i <= ($strstop || $#data); $i++) { 
+    	
         $data[$i] = $STRING_DELIMITER . $data[$i] . $STRING_DELIMITER; 
     };
     
@@ -322,7 +348,8 @@ __DATA__
     bits => {index => 25, format => '@76b9'},
     signed => [14, 16, 17, 18],
     segment => 38,
-    strstart => 51
+    strstart => 51,
+    asai_uui => 76
   },
 
   16 =>		# CMS R16, R16.1, R16.2
@@ -334,7 +361,8 @@ __DATA__
     signed => [16, 18, 19, 20],
     segment => 40,
     strstart => 53,
-    strstop => 78
+    strstop => 78,
+    asai_uui => 78
   },
 
   163 =>		# CMS R16.3 
@@ -346,7 +374,8 @@ __DATA__
     signed => [16, 18, 19, 20],
     segment => 40,
     strstart => 53,
-    strstop => 78
+    strstop => 78,
+    asai_uui => 78
   },
 
   170 =>		# CMS R17 
@@ -358,7 +387,8 @@ __DATA__
     signed => [19, 21, 22, 23],
     segment => 43,
     strstart => 56,
-    strstop => 81
+    strstop => 81,
+    asai_uui => 81
   },
   
   180 =>         # CMS R18
@@ -371,6 +401,7 @@ __DATA__
     segment => 41,
     strstart => 54,
     strstop => 79,
+    asai_uui => 79,
 	strtailstart => 86,
 	strtailstop => 88
   }
