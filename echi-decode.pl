@@ -6,6 +6,7 @@
 #
 # Version log:
 #
+# 1.9:  Added CMS R19 support
 # 1.81: Added option to specify ASAI_UUI output format (ASCII or HEX)
 # 1.8:	Added CMS R18 Support.
 #		Fixed a bug with bits unpacking format for CMS R16.x and R17
