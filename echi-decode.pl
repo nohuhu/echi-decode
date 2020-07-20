@@ -1,11 +1,17 @@
 #!/usr/bin/perl
 
-# ECHI decoder script (c) 2008-2013 Alex Tokarev <tokarev@cpan.org>
+# ECHI decoder script (c) 2008-2015 Alex Tokarev <tokarev@cpan.org>
 #
 # Usage: echi-decode.pl <binary input file> <csv output file>
 #
 # Version log:
 #
+# 1.9:  Added CMS R19 support
+# 1.81: Added option to specify ASAI_UUI output format (ASCII or HEX)
+# 1.8:	Added CMS R18 Support.
+#		Fixed a bug with bits unpacking format for CMS R16.x and R17
+#		Fixed a bug with CMS R16.x ASAI_UUI field length (changed from 96 to 97 bytes)
+#		Fixed a bug with V12 (CMS R12 - R15) record length (changed from 493 to 492 bytes)
 # 1.72: Added an option to specify string delimiter character
 #       Fixed a bug with date format command line option handling
 # 1.71: Fixed a bug with R17 header version
@@ -64,6 +70,15 @@ my $DATE_FORMAT = '"%d.%m.%Y %H:%M:%S"';
 #
 my $STRING_DELIMITER = '"';
 
+#
+# UUI output format (ASCII or HEX)
+# Default is ASCII - 0
+# UUI can contain some characters which make it hard to parse
+# (for example: ' - quote char, " - double quote char)
+# Use -x and -u command line options to override.
+#
+my $UUI_FORMAT = 0;
+
 ############################################################################
 #
 # PLEASE DON'T CHANGE ANYTHING BELOW THIS LINE!
@@ -98,12 +113,12 @@ $\ = "\n";
 
 {
     my %opt;
-    
-    getopts 'vqpnhf:s:', \%opt;
+
+    getopts 'vqpnhxuf:s:', \%opt;
 
     # Be quiet if -q, verbose if -v, or fall back to config
     $VERBOSE = $opt{q} ? 0 : $opt{v} ? 1 : $VERBOSE;
-    
+
     # Don't print header if -n, print if -p, or fall back
     $PRINT_HEADER = $opt{n} ? 0 : $opt{p} ? 1 : $PRINT_HEADER;
 
@@ -112,6 +127,9 @@ $\ = "\n";
 
     # String delimiter can be overridden, too
     $STRING_DELIMITER = $opt{s} if defined $opt{s};
+
+    # UUI Hex if -x, UUI ASCII if -u, of fallback to config
+    $UUI_FORMAT = $opt{u} ? 0 : $opt{x} ? 1 : $UUI_FORMAT;
 }
 
 if ($#ARGV < 1) {
@@ -123,6 +141,8 @@ Parameters:
 -q -- be quiet even despite \$VERBOSE variable or -v parameter set
 -p -- print CSV header line, listing all column names
 -n -- don't print header, takes precedence over variable or -p
+-x -- set UUI format as HEX
+-u -- set UUI format as ASCII
 -f <format> -- set date format, enclose in '' if there are spaces
 -s <char> -- set string delimiter character, default is qouble quote (")
 
@@ -131,7 +151,7 @@ and STDOUT are used, respectively.
 
 END
 };
-                                                              
+
 logit "$0 started" if $VERBOSE;
 
 my ($input_file, $output_file) = @ARGV;
@@ -166,14 +186,17 @@ my $bits_format   = $echi_format->{bits}->{format};
 my $signed        = $echi_format->{signed};
 my $strstart      = $echi_format->{strstart};
 my $strstop       = $echi_format->{strstop};
+my $strtailstart  = $echi_format->{strtailstart};
+my $strtailstop   = $echi_format->{strtailstop};
 my $segment       = $echi_format->{segment};
+my $asai_uui      = $echi_format->{asai_uui};
 
 print $output $header if $PRINT_HEADER;
 
 while( read $input, my $buf, $chunk_length ) {
     my @data = unpack $unpack_format, $buf;
     my $bits = unpack $bits_format, $buf;
-    
+
     splice @data, $bits_index, 0, split //, $bits;
 
     #
@@ -187,7 +210,7 @@ while( read $input, my $buf, $chunk_length ) {
         # Not sure if there will be any changes to this logic after R16.
         $data[6] = $data[($ver >= 16 ? 8 : 7)] - $data[5];
     };
-  
+
     if ($DATE_FORMAT) {
         for (my $i = 6; $i < ($ver >= 16 ? 10 : 8); $i++) {
             $data[$i] = strftime $DATE_FORMAT, gmtime $data[$i];
@@ -198,9 +221,31 @@ while( read $input, my $buf, $chunk_length ) {
         $data[$index] = unpack 's', pack 'S', $data[$index];
     };
 
-    for (my $i = $strstart; $i <= ($strstop || $#data); $i++) { 
-        $data[$i] = $STRING_DELIMITER . $data[$i] . $STRING_DELIMITER; 
+	#
+	# UUI to HEX Convertion
+	#
+	if ($ver >= 12 && $UUI_FORMAT == 1) {
+
+    		$data[$asai_uui] = unpack('H*', $data[$asai_uui]);
+	}
+
+
+    for (my $i = $strstart; $i <= ($strstop || $#data); $i++) {
+
+        $data[$i] = $STRING_DELIMITER . $data[$i] . $STRING_DELIMITER;
     };
+
+
+    #
+    # Adds delimiters to fields ORIG_ATTRIB_ID,ANS_ATTRIB_ID,OBS_ATTRIB_ID
+    # which were moved to the end of the call_rec (CMS R18)
+    #
+
+    if ($ver>=180){
+    	for (my $i = $strtailstart; $i <= ($strtailstop || $#data); $i++) {
+        	$data[$i] = $STRING_DELIMITER . $data[$i] . $STRING_DELIMITER;
+    	};
+	};
 
     dieit "Cannot write to file: $!"
         unless print $output join ',', @data;
@@ -209,7 +254,7 @@ while( read $input, my $buf, $chunk_length ) {
 
     my $callid  = $data[0];
     my $segment = $data[$segment];
-    
+
     logit "Processed record $processed, Call ID $callid, Segment $segment"
         if $VERBOSE;
 };
@@ -298,48 +343,82 @@ __DATA__
 
   12 =>		# CMS R12 to R15
   {
-    length => 493,
+    length => 492,
     header => 'CALLID,ACWTIME,ANSHOLDTIME,CONSULTTIME,DISPTIME,DURATION,SEGSTART,SEGSTOP,TALKTIME,NETINTIME,ORIGHOLDTIME,QUEUETIME,RINGTIME,DISPIVECTOR,DISPSPLIT,FIRSTVECTOR,SPLIT1,SPLIT2,SPLIT3,TKGRP,EQ_LOCID,ORIG_LOCID,ANS_LOCID,OBS_LOCID,UUI_LEN,ASSIST,AUDIO,CONFERENCE,DA_QUEUED,HOLDABN,MALICIOUS,OBSERVINGCALL,TRANSFERRED,AGT_RELEASED,ACD,DISPOSITION,DISPPRIORITY,HELD,SEGMENT,ANSREASON,ORIGREASON,DISPSKLEVEL,EVENT1,EVENT2,EVENT3,EVENT4,EVENT5,EVENT6,EVENT7,EVENT8,EVENT9,UCID,DISPVDN,EQLOC,FIRSTVDN,ORIGLOGIN,ANSLOGIN,LASTOBSERVER,DIALED_NUM,CALLING_PTY,LASTDIGITS,LASTCWC,CALLING_II,CWC1,CWC2,CWC3,CWC4,CWC5,VDN2,VDN3,VDN4,VDN5,VDN6,VDN7,VDN8,VDN9,ASAI_UUI',
     format => 'V13 v12 x2 C17 A21 A8 A10 A8' . 'A10'x3 . 'A25 A13 A17 A17 A3' . 'A17'x5 . 'A8'x8 . 'A96',
     bits => {index => 25, format => '@76b9'},
     signed => [14, 16, 17, 18],
     segment => 38,
-    strstart => 51
+    strstart => 51,
+    asai_uui => 76
   },
 
-  16 =>		# CMS R16 and above
+  16 =>		# CMS R16, R16.1, R16.2
   {
     length => 615,
     header => 'CALLID,ACWTIME,ANSHOLDTIME,CONSULTTIME,DISPTIME,DURATION,SEGSTART,SEGSTART_UTC,SEGSTOP,SEGSTOP_UTC,TALKTIME,NETINTIME,ORIGHOLDTIME,QUEUETIME,RINGTIME,DISPIVECTOR,DISPSPLIT,FIRSTIVECTOR,SPLIT1,SPLIT2,SPLIT3,TKGRP,EQ_LOCID,ORIG_LOCID,ANS_LOCID,OBS_LOCID,UUI_LEN,ASSIST,AUDIO,CONFERENCE,DA_QUEUED,HOLDABN,MALICIOUS,OBSERVINGCALL,TRANSFERRED,AGT_RELEASED,ACD,CALL_DISP,DISPPRIORITY,HELD,SEGMENT,ANSREASON,ORIGREASON,DISPSKLEVEL,EVENT1,EVENT2,EVENT3,EVENT4,EVENT5,EVENT6,EVENT7,EVENT8,EVENT9,UCID,DISPVDN,EQLOC,FIRSTVDN,ORIGLOGIN,ANSLOGIN,LASTOBSERVER,DIALED_NUM,CALLING_PTY,LASTDIGITS,LASTCWC,CALLING_II,CWC1,CWC2,CWC3,CWC4,CWC5,VDN2,VDN3,VDN4,VDN5,VDN6,VDN7,VDN8,VDN9,ASAI_UUI,INTERRUPTDEL,AGENTSURPLUS,AGENTSKILLLEVEL,PREFSKILLLEVEL',
-    format => 'V15 v12 x2 C17 A21 A16 A10' . 'A16 'x4 . 'A25 A25 A17 A17 A3' . 'A17 'x5 . 'A16 'x8 . 'A96 C4',
-    bits => {index => 27, format => '@76b9'},
+    format => 'V15 v12 x2 C17 A21 A16 A10' . 'A16 'x4 . 'A25 A25 A17 A17 A3' . 'A17 'x5 . 'A16 'x8 . 'A97 C4',
+    bits => {index => 27, format => '@84b9'},
     signed => [16, 18, 19, 20],
     segment => 40,
     strstart => 53,
-    strstop => 78
+    strstop => 78,
+    asai_uui => 78
   },
 
-  163 =>		# CMS R16.3 and above
+  163 =>		# CMS R16.3
   {
     length => 617,
     header => 'CALLID,ACWTIME,ANSHOLDTIME,CONSULTTIME,DISPTIME,DURATION,SEGSTART,SEGSTART_UTC,SEGSTOP,SEGSTOP_UTC,TALKTIME,NETINTIME,ORIGHOLDTIME,QUEUETIME,RINGTIME,DISPIVECTOR,DISPSPLIT,FIRSTIVECTOR,SPLIT1,SPLIT2,SPLIT3,TKGRP,EQ_LOCID,ORIG_LOCID,ANS_LOCID,OBS_LOCID,UUI_LEN,ASSIST,AUDIO,CONFERENCE,DA_QUEUED,HOLDABN,MALICIOUS,OBSERVINGCALL,TRANSFERRED,AGT_RELEASED,ACD,CALL_DISP,DISPPRIORITY,HELD,SEGMENT,ANSREASON,ORIGREASON,DISPSKLEVEL,EVENT1,EVENT2,EVENT3,EVENT4,EVENT5,EVENT6,EVENT7,EVENT8,EVENT9,UCID,DISPVDN,EQLOC,FIRSTVDN,ORIGLOGIN,ANSLOGIN,LASTOBSERVER,DIALED_NUM,CALLING_PTY,LASTDIGITS,LASTCWC,CALLING_II,CWC1,CWC2,CWC3,CWC4,CWC5,VDN2,VDN3,VDN4,VDN5,VDN6,VDN7,VDN8,VDN9,ASAI_UUI,INTERRUPTDEL,AGENTSURPLUS,AGENTSKILLLEVEL,PREFSKILLLEVEL,ICRRESENT,ICRPULLREASON',
-    format => 'V15 v12 x2 C17 A21 A16 A10' . 'A16 'x4 . 'A25 A25 A17 A17 A3' . 'A17 'x5 . 'A16 'x8 . 'A96 C6',
-    bits => {index => 27, format => '@76b9'},
+    format => 'V15 v12 x2 C17 A21 A16 A10' . 'A16 'x4 . 'A25 A25 A17 A17 A3' . 'A17 'x5 . 'A16 'x8 . 'A97 C6',
+    bits => {index => 27, format => '@84b9'},
     signed => [16, 18, 19, 20],
     segment => 40,
     strstart => 53,
-    strstop => 78
+    strstop => 78,
+    asai_uui => 78
   },
 
-  170 =>		# CMS R17 and above
+  170 =>		# CMS R17
   {
     length => 629,
     header => 'CALLID,ACWTIME,ANSHOLDTIME,CONSULTTIME,DISPTIME,DURATION,SEGSTART,SEGSTART_UTC,SEGSTOP,SEGSTOP_UTC,TALKTIME,NETINTIME,ORIGHOLDTIME,QUEUETIME,RINGTIME,ORIG_ATTRIB_ID,ANS_ATTRIB_ID,OBS_ATTRIB_ID,DISPIVECTOR,DISPSPLIT,FIRSTIVECTOR,SPLIT1,SPLIT2,SPLIT3,TKGRP,EQ_LOCID,ORIG_LOCID,ANS_LOCID,OBS_LOCID,UUI_LEN,ASSIST,AUDIO,CONFERENCE,DA_QUEUED,HOLDABN,MALICIOUS,OBSERVINGCALL,TRANSFERRED,AGT_RELEASED,ACD,CALL_DISP,DISPPRIORITY,HELD,SEGMENT,ANSREASON,ORIGREASON,DISPSKLEVEL,EVENT1,EVENT2,EVENT3,EVENT4,EVENT5,EVENT6,EVENT7,EVENT8,EVENT9,UCID,DISPVDN,EQLOC,FIRSTVDN,ORIGLOGIN,ANSLOGIN,LASTOBSERVER,DIALED_NUM,CALLING_PTY,LASTDIGITS,LASTCWC,CALLING_II,CWC1,CWC2,CWC3,CWC4,CWC5,VDN2,VDN3,VDN4,VDN5,VDN6,VDN7,VDN8,VDN9,ASAI_UUI,INTERRUPTDEL,AGENTSURPLUS,AGENTSKILLLEVEL,PREFSKILLLEVEL,ICRRESENT,ICRPULLREASON',
-    format => 'V18 v12 x2 C17 A21 A16 A10' . 'A16 'x4 . 'A25 A25 A17 A17 A3' . 'A17 'x5 . 'A16 'x8 . 'A96 C6',
-    bits => {index => 30, format => '@76b9'},
+    format => 'V18 v12 x2 C17 A21 A16 A10' . 'A16 'x4 . 'A25 A25 A17 A17 A3' . 'A17 'x5 . 'A16 'x8 . 'A97 C6',
+    bits => {index => 30, format => '@96b9'},
     signed => [19, 21, 22, 23],
     segment => 43,
     strstart => 56,
-    strstop => 81
+    strstop => 81,
+    asai_uui => 81
+  },
+
+  180 =>         # CMS R18
+  {
+    length => 697,
+    header => 'CALLID,ACWTIME,ANSHOLDTIME,CONSULTTIME,DISPTIME,DURATION,SEGSTART,SEGSTART_UTC,SEGSTOP,SEGSTOP_UTC,TALKTIME,NETINTIME,ORIGHOLDTIME,QUEUETIME,RINGTIME,TENANT,DISPIVECTOR,DISPSPLIT,FIRSTIVECTOR,SPLIT1,SPLIT2,SPLIT3,TKGRP,EQ_LOCID,ORIG_LOCID,ANS_LOCID,OBS_LOCID,UUI_LEN,ASSIST,AUDIO,CONFERENCE,DA_QUEUED,HOLDABN,MALICIOUS,OBSERVINGCALL,TRANSFERRED,AGT_RELEASED,ACD,CALL_DISP,DISPPRIORITY,HELD,SEGMENT,ANSREASON,ORIGREASON,DISPSKLEVEL,EVENT1,EVENT2,EVENT3,EVENT4,EVENT5,EVENT6,EVENT7,EVENT8,EVENT9,UCID,DISPVDN,EQLOC,FIRSTVDN,ORIGLOGIN,ANSLOGIN,LASTOBSERVER,DIALED_NUM,CALLING_PTY,LASTDIGITS,LASTCWC,CALLING_II,CWC1,CWC2,CWC3,CWC4,CWC5,VDN2,VDN3,VDN4,VDN5,VDN6,VDN7,VDN8,VDN9,ASAI_UUI,INTERRUPTDEL,AGENTSURPLUS,AGENTSKILLLEVEL,PREFSKILLLEVEL,ICRRESENT,ICRPULLREASON,ORIG_ATTRIB_ID,ANS_ATTRIB_ID,OBS_ATTRIB_ID',
+    format => 'V16 v12 x2 C17 A21 A17 A10' . 'A17 'x4 . 'A25 A25 A17 A17 A3' . 'A17 'x13 . 'A97 C6 A21 A21 A21',
+    bits => {index => 28, format => '@88b9'},
+    signed => [17, 19, 20, 21],
+    segment => 41,
+    strstart => 54,
+    strstop => 79,
+    asai_uui => 79,
+	  strtailstart => 86,
+	  strtailstop => 88
+  },
+
+  181 =>         # CMS R19
+  {
+    length => 720,
+    header => 'CALLID,ACWTIME,ANSHOLDTIME,CONSULTTIME,DISPTIME,DURATION,SEGSTART,SEGSTART_UTC,SEGSTOP,SEGSTOP_UTC,TALKTIME,NETINTIME,ORIGHOLDTIME,QUEUETIME,RINGTIME,TENANT,ECD_NUM,DISPIVECTOR,DISPSPLIT,FIRSTIVECTOR,SPLIT1,SPLIT2,SPLIT3,TKGRP,EQ_LOCID,ORIG_LOCID,ANS_LOCID,OBS_LOCID,UUI_LEN,ASSIST,AUDIO,CONFERENCE,DA_QUEUED,HOLDABN,MALICIOUS,OBSERVINGCALL,TRANSFERRED,AGT_RELEASED,ACD,CALL_DISP,DISPPRIORITY,HELD,SEGMENT,ANSREASON,ORIGREASON,DISPSKLEVEL,EVENT1,EVENT2,EVENT3,EVENT4,EVENT5,EVENT6,EVENT7,EVENT8,EVENT9,ECD_CONTROL,ECD_INFO,UCID,DISPVDN,EQLOC,FIRSTVDN,ORIGLOGIN,ANSLOGIN,LASTOBSERVER,DIALED_NUM,CALLING_PTY,LASTDIGITS,LASTCWC,CALLING_II,CWC1,CWC2,CWC3,CWC4,CWC5,VDN2,VDN3,VDN4,VDN5,VDN6,VDN7,VDN8,VDN9,ASAI_UUI,INTERRUPTDEL,AGENTSURPLUS,AGENTSKILLLEVEL,PREFSKILLLEVEL,ICRRESENT,ICRPULLREASON,ORIG_ATTRIB_ID,ANS_ATTRIB_ID,OBS_ATTRIB_ID,ECD_STR',
+    format => 'V17 v12 x2 C19 A21 A17 A10' . 'A17 'x4 . 'A25 A25 A17 A17 A3' . 'A17 'x13 . 'A97 C6 A21 A21 A21 A17',
+    bits => {index => 29, format => '@92b9'},
+    signed => [18, 20, 21, 22],
+    segment => 42,
+    strstart => 57,
+    strstop => 82,
+    asai_uui => 82,
+	  strtailstart => 89,
+	  strtailstop => 92
   }
 )
